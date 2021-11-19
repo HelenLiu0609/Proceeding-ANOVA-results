@@ -1,0 +1,212 @@
+---
+title: "Analysis_love state"
+author: "HelenLiu"
+output:
+  html_document: default
+---
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+```{r load and clean data}
+#load data & change data format 
+#Use a col_ function to guide parsing
+#Use drop_na function to handle missing value
+library(readr)
+love_status_cleared_data1 <- read_csv("~/Desktop/love_status.csv")
+#drop missing value 
+library(tidyr)
+library(rstatix)
+love_status_cleared_data2<-drop_na(love_status_cleared_data1,First_Fixation_neurual)
+View(love_status_cleared_data2)
+```
+```{r mean age and standard deviation }
+love_status_cleared_data2 %>% get_summary_stats(age, type = "mean_sd")
+```
+```{r mental representation}
+#paired sample t for mental representation
+#summary statistics 
+love_status_cleared_data2  %>% get_summary_stats(AISscore_before_mother ,AISscore_before_lover,AISscore_after_mother,AISscore_after_lover,  type = "mean_sd")
+#paired t
+#mother 
+paired_data_mental1 <- love_status_cleared_data2[,c(1,5,7)]
+longformat_paired_data_mental1 <- paired_data_mental1 %>% gather(key = "AIS_score", value = "score"  ,AISscore_before_mother,AISscore_after_mother)
+View(longformat_paired_data_mental1)
+stat.test <-longformat_paired_data_mental1 %>% t_test(score ~ AIS_score, paired = TRUE) %>% add_significance()
+stat.test
+#lovers 
+paired_data_mental2 <- love_status_cleared_data2[,c(1,6,8)]
+longformat_paired_data_mental2 <- paired_data_mental2 %>% gather(key = "AIS_score", value = "score"  ,AISscore_before_lover,AISscore_after_lover)
+View(longformat_paired_data_mental2)
+stat.test2 <-longformat_paired_data_mental2 %>% t_test(score ~ AIS_score, paired = TRUE) %>% add_significance()
+stat.test2
+```
+```{r paired sample t for duration 1,2 }
+# transform data into long data 
+paired_data <- love_status_cleared_data2[,c(1,11,12)]
+longformat_paired_data <- paired_data %>% gather(key = "experiment", value = "duration"  ,First_Fixation_neurual,Second_Fixation_totaltime)
+View(longformat_paired_data)
+# Summary statistics
+longformat_paired_data %>% group_by(experiment) %>% get_summary_stats(duration, type = "mean_sd")
+# t-test
+stat.test <- longformat_paired_data  %>% t_test(duration ~ experiment, paired = TRUE) %>% add_significance()
+stat.test
+#Effect Size  
+longformat_paired_data %>% cohens_d(duration ~ experiment, paired = TRUE)
+# Create a box plot
+library(ggpubr)
+bxp <- ggpaired(longformat_paired_data, x = "experiment", y = "duration", order = c("First_Fixation_neurual", "Second_Fixation_totaltime"), ylab = "Duration", xlab = "Experiments", fill = "experiment", palette = "jco")
+bxp
+# Add p-value and significance levels
+stat.test <- stat.test %>% add_xy_position(x = "experiment")
+bxp + 
+  stat_pvalue_manual(stat.test, tip.length = 0) +
+  labs(subtitle = get_test_label(stat.test, detailed= TRUE))
+```
+```{r classify groups into in-love/ non-love }
+#add row "love status"
+#classify groups into in-love/ non-love 
+Love_status<-cut(love_status_cleared_data2$PLS_score,breaks=c(-Inf,90,Inf),labels = c("non_love","in_love"))
+love_status_cleared_data2<-cbind(love_status_cleared_data2,Love_status)
+View(love_status_cleared_data2)
+```
+```{r Three-way mixed ANOVA}
+#1 selet roles for anova 
+anova_data <- love_status_cleared_data2[,c(1,2,13,14,15)]
+View(anova_data)
+# Gather the columns Sencond_Fixation_mother,Sencond_Fixation_lover into long format.
+# Convert gender and Love_status into factor variables
+library(datarium)
+library(rstatix)
+longformat_anova_data <- anova_data %>% gather(key = "person", value = "time", Sencond_Fixation_mother, Sencond_Fixation_lover) %>% convert_as_factor(Gender, Love_status)
+View(longformat_anova_data)
+#2 Summary Statistics
+longformat_anova_data %>% group_by(Gender, Love_status, person) %>% get_summary_stats(time, type = "mean_sd")
+library(ggpubr)
+  bxp <- ggboxplot(longformat_anova_data, x = "Gender", y = "time",ylab = "Duration", color = "Love_status", palette = "simpsons", facet.by =  "person")
+bxp
+```
+```{r 3 way ANOVA Check assumptions}
+#assumption not met, just uesd for learning 
+# 2 between and 1 within-subjects factors
+#between : gender (male,female), love status(in-love, non-love)
+#within: difference over eye fixation on mother/lover
+#Outliers
+longformat_anova_data %>% group_by(Gender, Love_status, person) %>% identify_outliers(time)
+# extreme outliers 
+```
+```{r Normality assumption } 
+#longformat_anova_data %>% group_by(Gender, Love_status, person) %>% shapiro_test(time) 
+# not fitting the assumption
+```
+```{r Homogneity of variance assumption}
+longformat_anova_data %>% group_by(person) %>% levene_test(time ~ Gender*Love_status)
+```
+```{r Assumption of sphericity}
+res.aov <- anova_test(data = longformat_anova_data, dv = time, wid = Number_participant, within = person, between = c(Gender, Love_status))
+get_anova_table(res.aov)
+```
+```{r 2x2 repeated measure ANOVA love statusx picture}
+# In Female, love status x picture 
+# select Female data
+# Gather the columns Sencond_Fixation_mother,Sencond_Fixation_lover into long format.
+# Convert Number_participants, Love_status into factor variables
+longformat_anova_data_female <- longformat_anova_data %>% filter(Gender == "Female") %>% convert_as_factor(Number_participant)
+longformat_anova_data_female
+#summary statistics
+longformat_anova_data_female %>% group_by(Love_status, person) %>% get_summary_stats(time, type = "mean_sd")
+#visualization
+bxp <- ggboxplot(longformat_anova_data_female, x = "person", y = "time", color = "Love_status", palette = "jco")
+bxp
+#Check assumption 
+#outliers & Normality
+longformat_anova_data_female %>% group_by(Love_status,person) %>% identify_outliers(time)
+longformat_anova_data_female %>% group_by(Love_status,person) %>% shapiro_test(time)
+ggqqplot(longformat_anova_data_female, "time", ggtheme = theme_bw()) + facet_grid(person ~ Love_status, labeller = "label_both")
+#remove outliers 11,23
+longformat_anova_data_female_removed <- longformat_anova_data_female[!(longformat_anova_data_female$Number_participant =="11" | longformat_anova_data_female$Number_participant=="23"),]
+longformat_anova_data_female_removed
+#anova 
+res.aov <- anova_test(data = longformat_anova_data_female_removed, dv = time, wid = Number_participant, between = Love_status, within = person)
+get_anova_table(res.aov) 
+#significant main effect, significant interaction
+# Effect of love status on pictures 
+one.way <- longformat_anova_data_female_removed %>% group_by(Love_status) %>% anova_test(dv = time, wid = Number_participant, within = person) %>% get_anova_table() %>% adjust_pvalue(method = "bonferroni")
+one.way
+# Pairwise comparisons between in-love/non-love groups
+pwc <- longformat_anova_data_female_removed %>% group_by(Love_status) %>% pairwise_t_test(time ~ person, paired = TRUE, p.adjust.method = "bonferroni")
+pwc
+#visualisation 
+bxp <- ggboxplot(longformat_anova_data_female, x = "person", y = "time", color = "Love_status", palette = "jco")
+pwc <- pwc %>% add_xy_position(x = "person")
+bxp + stat_pvalue_manual(pwc, tip.length = 0, hide.ns = TRUE) +
+  labs(subtitle = get_test_label(res.aov, detailed = TRUE),
+    caption = get_pwc_label(pwc))
+```
+```{r "don't remove outliers"}
+longformat_anova_data_female <- longformat_anova_data %>% filter(Gender == "Female") %>% convert_as_factor(Number_participant)
+longformat_anova_data_female
+#summary statistics
+longformat_anova_data_female %>% group_by(Love_status, person) %>% get_summary_stats(time, type = "mean_sd")
+#anova 
+res.aov <- anova_test(data = longformat_anova_data_female, dv = time, wid = Number_participant, between = Love_status, within = person)
+# Effect of love status on pictures 
+one.way <- longformat_anova_data_female %>% group_by(Love_status) %>% anova_test(dv = time, wid = Number_participant, within = person) %>% get_anova_table() %>% adjust_pvalue(method = "bonferroni")
+one.way
+# Pairwise comparisons between in-love/non-love groups
+pwc <- longformat_anova_data_female %>% group_by(Love_status) %>% pairwise_t_test(time ~ person, paired = TRUE, p.adjust.method = "bonferroni")
+pwc
+#plots 
+pwc <- pwc %>% add_xy_position(x = "person")
+bxp + stat_pvalue_manual(pwc, tip.length = 0, hide.ns = TRUE) +
+  labs(subtitle = get_test_label(res.aov, detailed = TRUE),
+    caption = get_pwc_label(pwc))
+```
+```{r repeated measure anova gender }
+# passiante love condition 
+#influence of gender on time 
+#select passiante love data
+# Gather the columns Sencond_Fixation_mother,Sencond_Fixation_lover into long format.
+# Convert Number_participants, Gender into factor variables
+longformat_anova_data_inlove <- longformat_anova_data %>% filter(Love_status == "in_love") %>% convert_as_factor(Gender)
+longformat_anova_data_inlove
+#summary statistics
+longformat_anova_data_inlove %>% group_by(Gender, person) %>% get_summary_stats(time, type = "mean_sd")
+#visualization
+bxp <- ggboxplot(longformat_anova_data_inlove, x = "Gender", y = "time", color = "person", palette = "jco")
+bxp
+#Check assumption 
+#outliers
+longformat_anova_data_inlove %>% group_by(Gender,person) %>% identify_outliers(time)
+longformat_anova_data_inlove %>% group_by(Gender,person) %>% shapiro_test(time)
+ggqqplot(longformat_anova_data_inlove, "time", ggtheme = theme_bw()) + facet_grid(person ~ Gender, labeller = "label_both")
+#remove outliers 
+longformat_anova_data_inlove_removed <- longformat_anova_data_inlove[!(longformat_anova_data_inlove$Number_participant =="11" | longformat_anova_data_inlove$Number_participant=="33"),]
+longformat_anova_data_inlove_removed 
+#anova 
+res.aov <- anova_test(data = longformat_anova_data_inlove_removed, dv = time, wid = Number_participant, between = Gender, within = person)
+get_anova_table(res.aov) 
+#significant main effect, significant interaction
+# Effect of gender on pictures 
+one.way <- longformat_anova_data_inlove_removed %>% group_by(Gender) %>% anova_test(dv = time, wid = Number_participant, within = person) %>% get_anova_table() %>% adjust_pvalue(method = "bonferroni")
+one.way
+# Pairwise comparisons between in-love/non-love groups
+pwc <- longformat_anova_data_inlove_removed %>% group_by(Gender) %>% pairwise_t_test(time ~ person, paired = TRUE, p.adjust.method = "bonferroni")
+pwc
+#visualisation 
+pwc <- pwc %>% add_xy_position(x = "Gender")
+bxp + stat_pvalue_manual(pwc, tip.length = 0, hide.ns = TRUE) +
+  labs(subtitle = get_test_label(res.aov, detailed = TRUE),
+    caption = get_pwc_label(pwc))
+```
+```{r repeated measure anova gender with  outliers }
+res.aov <- anova_test(data = longformat_anova_data_inlove , dv = time, wid = Number_participant, between = Gender, within = person)
+get_anova_table(res.aov) 
+# pairwaise 
+pwc <- longformat_anova_data_inlove %>% group_by(Gender) %>% pairwise_t_test(time ~ person, paired = TRUE, p.adjust.method = "bonferroni")
+pwc
+```
+
+
+
+
+
+
+
